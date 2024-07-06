@@ -4,7 +4,6 @@ const express = require("express");
 const multer = require('multer');
 const upload = multer();
 const FormData = require('form-data');
-const { Blob } = require('buffer');
 
 const IHateCORSResource = express.Router();
 
@@ -23,25 +22,28 @@ IHateCORSResource.use("", upload.single('file'), async (req, res) => {
     let form = new FormData();
 
     if (req.file) {
-      const file_blob = new Blob([req.file.buffer], { type: req.file.mimetype });
-      form.append('file', file_blob, req.file.originalname);
+      form.append('file', req.file.buffer, req.file.originalname);
+      headers = form.getHeaders(headers);
     }
-
-    let body = req.file ? form : JSON.stringify(req.body);
 
     let response = await axios({
       method: req.method.toLowerCase(),
       url: `http://localhost:8080${req.path.replace(/\)$/, '')}`, // Remove trailing parenthesis
-      data: body,
+      data: req.file ? form : req.body,
       headers,
       params: { ...req.query },
-      responseType: "json", // Changed to 'json' to automatically parse JSON
+      responseType: 'arraybuffer' // This is important for binary file responses
     });
 
     console.log(`Response status: ${response.status}`);
-    console.log('Response data:', response.data);
+    console.log('Response headers:', response.headers);
 
-    return res.status(response.status).json(response.data); // Return response directly
+    // Set the response headers to match the original response
+    for (const [key, value] of Object.entries(response.headers)) {
+      res.setHeader(key, value);
+    }
+
+    return res.status(response.status).send(response.data); // Send raw data directly
   } catch (error) {
     console.error('Error:', error);
 
@@ -49,7 +51,7 @@ IHateCORSResource.use("", upload.single('file'), async (req, res) => {
       // Propagate the actual status code from the backend
       console.error('Backend response status:', error.response.status);
       console.error('Backend response data:', error.response.data);
-      return res.status(error.response.status).json(error.response.data);
+      return res.status(error.response.status).send(error.response.data);
     } else {
       // Handle other errors (e.g., network errors)
       return res.status(500).json({ error: 'Internal Server Error' });
